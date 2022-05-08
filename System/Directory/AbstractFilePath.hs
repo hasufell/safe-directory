@@ -7,7 +7,7 @@
 
 -----------------------------------------------------------------------------
 -- |
--- Module      :  System.Directory
+-- Module      :  System.Directory.AbstractFilePath
 -- Copyright   :  (c) The University of Glasgow 2001
 -- License     :  BSD-style (see the file libraries/base/LICENSE)
 --
@@ -19,12 +19,16 @@
 --
 -----------------------------------------------------------------------------
 
-module System.Directory
+module System.Directory.AbstractFilePath
    (
     -- $intro
 
+    -- * Types
+      AbstractFilePath
+    , OsString
+
     -- * Actions on directories
-      createDirectory
+    , createDirectory
     , createDirectoryIfMissing
     , removeDirectory
     , removeDirectoryRecursive
@@ -111,9 +115,9 @@ module System.Directory
 
    ) where
 import Prelude ()
-import System.Directory.Internal
-import System.Directory.Internal.Prelude
-import System.FilePath
+import System.Directory.Internal.AbstractFilePath
+import System.Directory.Internal.Prelude hiding (lookupEnv)
+import System.AbstractFilePath
   ( (<.>)
   , (</>)
   , addTrailingPathSeparator
@@ -125,11 +129,14 @@ import System.FilePath
   , splitDirectories
   , splitSearchPath
   , takeDirectory
+  , AbstractFilePath
+  , OsString
   )
 import Data.Time (UTCTime)
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import Data.String ( fromString )
 
-#define FILEPATH FilePath
-#define STRING String
-#include "Directory/Template.hs"
+
+#define FILEPATH AbstractFilePath
+#define STRING OsString
+#include "Template.hs"
