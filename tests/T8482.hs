@@ -2,10 +2,10 @@
 module T8482 where
 #include "util.inl"
 
-tmp1 :: FilePath
+tmp1 :: OsPath
 tmp1 = "T8482.tmp1"
 
-testdir :: FilePath
+testdir :: OsPath
 testdir = "T8482.dir"
 
 main :: TestEnv -> IO ()

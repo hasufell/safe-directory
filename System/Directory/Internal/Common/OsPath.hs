@@ -1,7 +1,14 @@
+module System.Directory.Internal.Common.OsPath where
+
+import qualified System.OsPath as OSP
+
+import qualified System.File.OsPath as P
+
+import System.OsString.Internal.Types
+import System.OsPath.Types
 import Prelude ()
-import Data.String ( fromString )
 import System.Directory.Internal.Prelude
-import SYSTEM_FILEPATH_MODULE
+import System.OsPath
   ( addTrailingPathSeparator
   , hasTrailingPathSeparator
   , isPathSeparator
@@ -13,7 +20,12 @@ import SYSTEM_FILEPATH_MODULE
   , pathSeparators
   , splitDirectories
   , splitDrive
+  , unsafeFromChar
   )
+import GHC.IO.Encoding.UTF8
+import GHC.IO.Encoding.UTF16
+import GHC.IO.Encoding.Failure ( CodingFailureMode(..) )
+import Control.Exception (Exception(displayException))
 
 -- | A generator with side-effects.
 newtype ListT m a = ListT { unListT :: m (Maybe (a, ListT m a)) }
@@ -97,26 +109,26 @@ ioeAddLocation e loc = do
 
 -- | Given a list of path segments, expand @.@ and @..@.  The path segments
 -- must not contain path separators.
-expandDots :: [FILEPATH] -> [FILEPATH]
+expandDots :: [OsPath] -> [OsPath]
 expandDots = reverse . go []
   where
     go ys' xs' =
       case xs' of
         [] -> ys'
         x : xs ->
-          if | x == fromString "." -> go ys' xs
-             | x == fromString ".." ->
+          if | x == encodeFilepathUnsafe "." -> go ys' xs
+             | x == encodeFilepathUnsafe ".." ->
                 case ys' of
                   [] -> go (x : ys') xs
-                  y : ys -> if y == fromString ".." then go (x : ys') xs else go ys xs
+                  y : ys -> if y == encodeFilepathUnsafe ".." then go (x : ys') xs else go ys xs
              | otherwise -> go (x : ys') xs
 
 -- | Convert to the right kind of slashes.
-normalisePathSeps :: FILEPATH -> FILEPATH
+normalisePathSeps :: OsPath -> OsPath
 normalisePathSeps p = pack $ (\ c -> if isPathSeparator c then pathSeparator else c) <$> unpack p
 
 -- | Remove redundant trailing slashes and pick the right kind of slash.
-normaliseTrailingSep :: FILEPATH -> FILEPATH
+normaliseTrailingSep :: OsPath -> OsPath
 normaliseTrailingSep (unpack -> path) = pack $ do
   let path' = reverse path
   let (sep, path'') = span isPathSeparator path'
@@ -125,13 +137,13 @@ normaliseTrailingSep (unpack -> path) = pack $ do
 
 -- | Convert empty paths to the current directory, otherwise leave it
 -- unchanged.
-emptyToCurDir :: FILEPATH -> FILEPATH
+emptyToCurDir :: OsPath -> OsPath
 emptyToCurDir path
-  | null (unpack path) = fromString "."
+  | null (unpack path) = encodeFilepathUnsafe "."
   | otherwise = path
 
 -- | Similar to 'normalise' but empty paths stay empty.
-simplifyPosix :: FILEPATH -> FILEPATH
+simplifyPosix :: OsPath -> OsPath
 simplifyPosix path
   | null (unpack path) = pack []
   | otherwise = normalise path
@@ -143,11 +155,11 @@ simplifyPosix path
 -- * paths starting with @\\\\?\\@ are preserved.
 --
 -- The goal is to preserve the meaning of paths better than 'normalise'.
-simplifyWindows :: FILEPATH -> FILEPATH
+simplifyWindows :: OsPath -> OsPath
 simplifyWindows path
   | null (unpack path) = pack []
   | otherwise =
-      if drive' == fromString "\\\\?\\" then drive' <> subpath else simplifiedPath
+      if drive' == encodeFilepathUnsafe "\\\\?\\" then drive' <> subpath else simplifiedPath
   where
     simplifiedPath = joinDrive drive' subpath'
     (drive, subpath) = splitDrive path
@@ -163,7 +175,7 @@ simplifyWindows path
                 , all isPathSeparator s -> pack (unsafeFromChar' (toUpper (toChar c)) : unsafeFromChar' ':' : s)
       _ -> d
     skipSeps = fmap pack . filter (not . (`elem` (pure <$> pathSeparators))) . fmap unpack
-    stripPardirs | pathIsAbsolute || subpathIsAbsolute = dropWhile (== fromString "..")
+    stripPardirs | pathIsAbsolute || subpathIsAbsolute = dropWhile (== encodeFilepathUnsafe "..")
                  | otherwise = id
     prependSep | subpathIsAbsolute = (pack [pathSeparator] <>)
                | otherwise = id
@@ -211,8 +223,8 @@ data Permissions
 -- file to the destination file.  If the destination file already exists, its
 -- attributes shall remain unchanged.  Otherwise, its attributes are reset to
 -- the defaults.
-copyFileContents :: FILEPATH            -- ^ Source filename
-                 -> FILEPATH            -- ^ Destination filename
+copyFileContents :: OsPath            -- ^ Source filename
+                 -> OsPath            -- ^ Destination filename
                  -> IO ()
 copyFileContents fromFPath toFPath =
   (`ioeAddLocation` "copyFileContents") `modifyIOError` do
@@ -220,7 +232,7 @@ copyFileContents fromFPath toFPath =
       copyFileToHandle fromFPath hTo
 
 -- | Copy all data from a file to a handle.
-copyFileToHandle :: FILEPATH            -- ^ Source file
+copyFileToHandle :: OsPath            -- ^ Source file
                  -> Handle              -- ^ Destination handle
                  -> IO ()
 copyFileToHandle fromFPath hTo =
@@ -310,3 +322,48 @@ data XdgDirectoryList
     -- On Windows, the default is @%PROGRAMDATA%@ or @%ALLUSERSPROFILE%@
     -- (e.g. @C:\/ProgramData@).
   deriving (Bounded, Enum, Eq, Ord, Read, Show)
+
+unpack :: OsPath -> [OsChar]
+unpack = OSP.unpack
+
+pack :: [OsChar] -> OsPath
+pack = OSP.pack
+
+-- UNSAFE... only use this with ascii, not unknown input
+unsafeFromChar' :: Char -> OsChar
+unsafeFromChar' = unsafeFromChar
+
+toChar :: OsChar -> Char
+toChar = OSP.toChar
+
+unpackPlatform :: OsPath -> PlatformPath
+unpackPlatform (OsString p) = p
+
+packPlatform :: PlatformPath -> OsPath
+packPlatform = OsString
+
+-- for errors only, never fails
+decodeFilepathFuzzy :: OsPath -> FilePath
+decodeFilepathFuzzy = either (error . displayException) id . OSP.decodeWith (mkUTF8 TransliterateCodingFailure) (mkUTF16le TransliterateCodingFailure)
+
+encodeFilepathUnsafe :: FilePath -> OsPath
+encodeFilepathUnsafe =
+  either (error . displayException) id
+  . OSP.encodeWith
+    (mkUTF8 ErrorOnCodingFailure)
+    (mkUTF16le ErrorOnCodingFailure)
+
+decodeFilepathUnsafe :: OsPath -> FilePath
+decodeFilepathUnsafe =
+  either (error . displayException) id
+  . OSP.decodeWith
+    (mkUTF8 ErrorOnCodingFailure)
+    (mkUTF16le ErrorOnCodingFailure)
+
+
+toString :: OsPath -> IO FilePath
+toString = OSP.decodeFS
+
+fromStringIO :: String -> IO OsPath
+fromStringIO = OSP.encodeFS
+

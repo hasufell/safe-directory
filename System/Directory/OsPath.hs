@@ -1,3 +1,141 @@
+{-# LANGUAGE CPP #-}
+
+#if !MIN_VERSION_base(4, 8, 0)
+-- In base-4.8.0 the Foreign module became Safe
+{-# LANGUAGE Trustworthy #-}
+#endif
+
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  System.Directory.OsPath
+-- Copyright   :  (c) The University of Glasgow 2001
+-- License     :  BSD-style (see the file libraries/base/LICENSE)
+--
+-- Maintainer  :  libraries@haskell.org
+-- Stability   :  stable
+-- Portability :  portable
+--
+-- System-independent interface to directory manipulation.
+--
+-----------------------------------------------------------------------------
+
+module System.Directory.OsPath
+   (
+    -- $intro
+
+    -- * Types
+      OsPath
+    , OsString
+
+    -- * Actions on directories
+    , createDirectory
+    , createDirectoryIfMissing
+    , removeDirectory
+    , removeDirectoryRecursive
+    , removePathForcibly
+    , renameDirectory
+    , listDirectory
+    , getDirectoryContents
+    -- ** Current working directory
+    , getCurrentDirectory
+    , setCurrentDirectory
+    , withCurrentDirectory
+
+    -- * Pre-defined directories
+    , getHomeDirectory
+    , XdgDirectory(..)
+    , getXdgDirectory
+    , XdgDirectoryList(..)
+    , getXdgDirectoryList
+    , getAppUserDataDirectory
+    , getUserDocumentsDirectory
+    , getTemporaryDirectory
+
+    -- * Actions on files
+    , removeFile
+    , renameFile
+    , renamePath
+    , copyFile
+    , copyFileWithMetadata
+    , getFileSize
+
+    , canonicalizePath
+    , makeAbsolute
+    , makeRelativeToCurrentDirectory
+
+    -- * Existence tests
+    , doesPathExist
+    , doesFileExist
+    , doesDirectoryExist
+
+    , findExecutable
+    , findExecutables
+    , findExecutablesInDirectories
+    , findFile
+    , findFiles
+    , findFileWith
+    , findFilesWith
+    , exeExtension
+
+    -- * Symbolic links
+    , createFileLink
+    , createDirectoryLink
+    , removeDirectoryLink
+    , pathIsSymbolicLink
+    , getSymbolicLinkTarget
+
+    -- * Permissions
+
+    -- $permissions
+
+    , Permissions
+    , emptyPermissions
+    , readable
+    , writable
+    , executable
+    , searchable
+    , setOwnerReadable
+    , setOwnerWritable
+    , setOwnerExecutable
+    , setOwnerSearchable
+
+    , getPermissions
+    , setPermissions
+    , copyPermissions
+
+    -- * Timestamps
+
+    , getAccessTime
+    , getModificationTime
+    , setAccessTime
+    , setModificationTime
+
+    -- * Deprecated
+    , isSymbolicLink
+
+   ) where
+import Prelude ()
+import System.Directory.Internal.OsPath
+import System.Directory.Internal.Prelude hiding (lookupEnv)
+import System.OsPath
+  ( (<.>)
+  , (</>)
+  , addTrailingPathSeparator
+  , dropTrailingPathSeparator
+  , hasTrailingPathSeparator
+  , isAbsolute
+  , joinPath
+  , makeRelative
+  , splitDirectories
+  , splitSearchPath
+  , takeDirectory
+  , encodeFS
+  , OsPath
+  , OsString
+  )
+import Data.Time (UTCTime)
+import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
+
 
 {- $intro
 A directory contains a series of entries, each of which is a named
@@ -90,7 +228,7 @@ setOwnerSearchable b p = p { searchable = b }
 --   permissions, or
 --
 -- * 'isDoesNotExistError' if the file or directory does not exist.
-getPermissions :: FILEPATH -> IO Permissions
+getPermissions :: OsPath -> IO Permissions
 getPermissions path =
   (`ioeAddLocation` "getPermissions") `modifyIOError` do
     getAccessPermissions (emptyToCurDir path)
@@ -109,7 +247,7 @@ getPermissions path =
 --   or
 --
 -- * 'isDoesNotExistError' if the file or directory does not exist.
-setPermissions :: FILEPATH -> Permissions -> IO ()
+setPermissions :: OsPath -> Permissions -> IO ()
 setPermissions path p =
   (`ioeAddLocation` "setPermissions") `modifyIOError` do
     setAccessPermissions (emptyToCurDir path) p
@@ -121,13 +259,13 @@ setPermissions path p =
 -- On Windows, this copies only the read-only attribute.
 --
 -- On POSIX systems, this is equivalent to @stat@ followed by @chmod@.
-copyPermissions :: FILEPATH -> FILEPATH -> IO ()
+copyPermissions :: OsPath -> OsPath -> IO ()
 copyPermissions src dst =
   (`ioeAddLocation` "copyPermissions") `modifyIOError` do
     m <- getFileMetadata src
     copyPermissionsFromMetadata m dst
 
-copyPermissionsFromMetadata :: Metadata -> FILEPATH -> IO ()
+copyPermissionsFromMetadata :: Metadata -> OsPath -> IO ()
 copyPermissionsFromMetadata m dst = do
   -- instead of setFileMode, setFilePermissions is used here
   -- this is to retain backward compatibility in copyPermissions
@@ -173,14 +311,14 @@ The path refers to an existing non-directory object.
 
 -}
 
-createDirectory :: FILEPATH -> IO ()
+createDirectory :: OsPath -> IO ()
 createDirectory = createDirectoryInternal
 
 -- | @'createDirectoryIfMissing' parents dir@ creates a new directory
 -- @dir@ if it doesn\'t exist. If the first argument is 'True'
 -- the function will also create all parent directories if they are missing.
 createDirectoryIfMissing :: Bool     -- ^ Create its parents too?
-                         -> FILEPATH -- ^ The path to the directory you want to make
+                         -> OsPath -- ^ The path to the directory you want to make
                          -> IO ()
 createDirectoryIfMissing create_parents path0
   | create_parents = createDirs (parents path0)
@@ -264,7 +402,7 @@ The operand refers to an existing non-directory object.
 
 -}
 
-removeDirectory :: FILEPATH -> IO ()
+removeDirectory :: OsPath -> IO ()
 removeDirectory = removePathInternal True
 
 -- | @'removeDirectoryRecursive' dir@ removes an existing directory /dir/
@@ -275,7 +413,7 @@ removeDirectory = removePathInternal True
 --
 -- This operation is reported to be flaky on Windows so retry logic may
 -- be advisable. See: https://github.com/haskell/directory/pull/108
-removeDirectoryRecursive :: FILEPATH -> IO ()
+removeDirectoryRecursive :: OsPath -> IO ()
 removeDirectoryRecursive path =
   (`ioeAddLocation` "removeDirectoryRecursive") `modifyIOError` do
     m <- getSymbolicLinkMetadata path
@@ -294,7 +432,7 @@ removeDirectoryRecursive path =
 --
 -- This operation is reported to be flaky on Windows so retry logic may
 -- be advisable. See: https://github.com/haskell/directory/pull/108
-removePathRecursive :: FILEPATH -> IO ()
+removePathRecursive :: OsPath -> IO ()
 removePathRecursive path =
   (`ioeAddLocation` "removePathRecursive") `modifyIOError` do
     m <- getSymbolicLinkMetadata path
@@ -309,7 +447,7 @@ removePathRecursive path =
 --
 -- This operation is reported to be flaky on Windows so retry logic may
 -- be advisable. See: https://github.com/haskell/directory/pull/108
-removeContentsRecursive :: FILEPATH -> IO ()
+removeContentsRecursive :: OsPath -> IO ()
 removeContentsRecursive path =
   (`ioeAddLocation` "removeContentsRecursive") `modifyIOError` do
     cont <- listDirectory path
@@ -334,7 +472,7 @@ removeContentsRecursive path =
 -- exception.  The first exception that it encountered is re-thrown.
 --
 -- @since 1.2.7.0
-removePathForcibly :: FILEPATH -> IO ()
+removePathForcibly :: OsPath -> IO ()
 removePathForcibly path =
   (`ioeAddLocation` "removePathForcibly") `modifyIOError` do
     makeRemovable path `catchIOError` \ _ -> pure ()
@@ -354,7 +492,7 @@ removePathForcibly path =
     ignoreDoesNotExistError action =
       () <$ tryIOErrorType isDoesNotExistError action
 
-    makeRemovable :: FILEPATH -> IO ()
+    makeRemovable :: OsPath -> IO ()
     makeRemovable p = do
       perms <- getPermissions p
       setPermissions path perms{ readable = True
@@ -395,7 +533,7 @@ The operand refers to an existing directory.
 
 -}
 
-removeFile :: FILEPATH -> IO ()
+removeFile :: OsPath -> IO ()
 removeFile = removePathInternal False
 
 {- |@'renameDirectory' old new@ changes the name of an existing
@@ -447,7 +585,7 @@ Either path refers to an existing non-directory object.
 
 -}
 
-renameDirectory :: FILEPATH -> FILEPATH -> IO ()
+renameDirectory :: OsPath -> OsPath -> IO ()
 renameDirectory opath npath =
    (`ioeAddLocation` "renameDirectory") `modifyIOError` do
      -- XXX this test isn't performed atomically with the following rename
@@ -506,7 +644,7 @@ Either path refers to an existing directory.
 
 -}
 
-renameFile :: FILEPATH -> FILEPATH -> IO ()
+renameFile :: OsPath -> OsPath -> IO ()
 renameFile opath npath =
   (`ioeAddLocation` "renameFile") `modifyIOError` do
     -- XXX the tests are not performed atomically with the rename
@@ -570,8 +708,8 @@ renameFile opath npath =
 -- @[ENOTDIR, EISDIR, EINVAL, EEXIST, ENOTEMPTY]@
 --
 -- @since 1.2.7.0
-renamePath :: FILEPATH                  -- ^ Old path
-           -> FILEPATH                  -- ^ New path
+renamePath :: OsPath                  -- ^ Old path
+           -> OsPath                  -- ^ New path
            -> IO ()
 renamePath opath npath =
   (`ioeAddLocation` "renamePath") `modifyIOError` do
@@ -581,8 +719,8 @@ renamePath opath npath =
 -- it is replaced atomically.  Neither path may refer to an existing
 -- directory.  No exceptions are thrown if the permissions could not be
 -- copied.
-copyFile :: FILEPATH                    -- ^ Source filename
-         -> FILEPATH                    -- ^ Destination filename
+copyFile :: OsPath                    -- ^ Source filename
+         -> OsPath                    -- ^ Destination filename
          -> IO ()
 copyFile fromFPath toFPath =
   (`ioeAddLocation` "copyFile") `modifyIOError` do
@@ -592,9 +730,9 @@ copyFile fromFPath toFPath =
 -- | Copy the contents of a source file to a destination file, replacing the
 -- destination file atomically via @withReplacementFile@, resetting the
 -- attributes of the destination file to the defaults.
-atomicCopyFileContents :: FILEPATH            -- ^ Source filename
-                       -> FILEPATH            -- ^ Destination filename
-                       -> (FILEPATH -> IO ()) -- ^ Post-action
+atomicCopyFileContents :: OsPath            -- ^ Source filename
+                       -> OsPath            -- ^ Destination filename
+                       -> (OsPath -> IO ()) -- ^ Post-action
                        -> IO ()
 atomicCopyFileContents fromFPath toFPath postAction =
   (`ioeAddLocation` "atomicCopyFileContents") `modifyIOError` do
@@ -607,8 +745,8 @@ atomicCopyFileContents fromFPath toFPath postAction =
 -- post-action with its path, and finally replaces the destination file with
 -- the temporary file.  If an error occurs during any step of this process,
 -- the temporary file is removed and the destination file remains untouched.
-withReplacementFile :: FILEPATH            -- ^ Destination file
-                    -> (FILEPATH -> IO ()) -- ^ Post-action
+withReplacementFile :: OsPath            -- ^ Destination file
+                    -> (OsPath -> IO ()) -- ^ Post-action
                     -> (Handle -> IO a)    -- ^ Main action
                     -> IO a
 withReplacementFile path postAction action =
@@ -620,7 +758,7 @@ withReplacementFile path postAction action =
       --       converts with UTF-16LE)
       d <- toString (takeDirectory path)
       (tmpFPath', hTmp) <- openBinaryTempFile d ".copyFile.tmp"
-      tmpFPath <- fromStringIO tmpFPath'
+      tmpFPath <- encodeFS tmpFPath'
       (`onException` ignoreIOExceptions (removeFile tmpFPath)) $ do
         r <- (`onException` ignoreIOExceptions (hClose hTmp)) $ do
           restore (action hTmp)
@@ -647,8 +785,8 @@ withReplacementFile path postAction action =
 -- completes.
 --
 -- @since 1.2.6.0
-copyFileWithMetadata :: FILEPATH        -- ^ Source file
-                     -> FILEPATH        -- ^ Destination file
+copyFileWithMetadata :: OsPath        -- ^ Source file
+                     -> OsPath        -- ^ Destination file
                      -> IO ()
 copyFileWithMetadata src dst =
   (`ioeAddLocation` "copyFileWithMetadata") `modifyIOError`
@@ -657,7 +795,7 @@ copyFileWithMetadata src dst =
                                  src
                                  dst
 
-copyTimesFromMetadata :: Metadata -> FILEPATH -> IO ()
+copyTimesFromMetadata :: Metadata -> OsPath -> IO ()
 copyTimesFromMetadata st dst = do
   let atime = accessTimeFromMetadata st
   let mtime = modificationTimeFromMetadata st
@@ -726,7 +864,7 @@ copyTimesFromMetadata st dst = do
 -- properly dereferenced.  Case canonicalization and symbolic link expansion
 -- are now performed on Windows.
 --
-canonicalizePath :: FILEPATH -> IO FILEPATH
+canonicalizePath :: OsPath -> IO OsPath
 canonicalizePath = \ path ->
   ((`ioeAddLocation` "canonicalizePath") .
    (`ioeSetFileName` decodeFilepathFuzzy path)) `modifyIOError` do
@@ -755,7 +893,7 @@ canonicalizePath = \ path ->
 
         segments = splitDirectories path
         prefixes = scanl1 (</>) segments
-        suffixes = tail (scanr (</>) (fromString "") segments)
+        suffixes = tail (scanr (</>) (encodeFilepathUnsafe "") segments)
 
         -- try to call realpath on the largest possible prefix
         realpathPrefix candidates =
@@ -806,7 +944,7 @@ canonicalizePath = \ path ->
 --
 -- @since 1.2.2.0
 --
-makeAbsolute :: FILEPATH -> IO FILEPATH
+makeAbsolute :: OsPath -> IO OsPath
 makeAbsolute path =
   ((`ioeAddLocation` "makeAbsolute") .
    (`ioeSetFileName` decodeFilepathFuzzy path)) `modifyIOError` do
@@ -816,7 +954,7 @@ makeAbsolute path =
 -- match its presence in the first path.
 --
 -- (internal API)
-matchTrailingSeparator :: FILEPATH -> FILEPATH -> FILEPATH
+matchTrailingSeparator :: OsPath -> OsPath -> OsPath
 matchTrailingSeparator path
   | hasTrailingPathSeparator path = addTrailingPathSeparator
   | otherwise                     = dropTrailingPathSeparator
@@ -825,7 +963,7 @@ matchTrailingSeparator path
 -- 'makeRelative'.
 --
 -- The operation may fail with the same exceptions as 'getCurrentDirectory'.
-makeRelativeToCurrentDirectory :: FILEPATH -> IO FILEPATH
+makeRelativeToCurrentDirectory :: OsPath -> IO OsPath
 makeRelativeToCurrentDirectory x = do
   (`makeRelative` x) <$> getCurrentDirectory
 
@@ -852,7 +990,7 @@ makeRelativeToCurrentDirectory x = do
 -- using the search directories from the @PATH@ environment variable and
 -- testing each file for executable permissions.  Details can be found in the
 -- documentation of 'findFileWith'.
-findExecutable :: STRING -> IO (Maybe FILEPATH)
+findExecutable :: OsString -> IO (Maybe OsPath)
 findExecutable binary =
   listTHead
     (findExecutablesLazyInternal findExecutablesInDirectoriesLazy binary)
@@ -869,7 +1007,7 @@ findExecutable binary =
 -- 'findExecutablesInDirectories'.
 --
 -- @since 1.2.2.0
-findExecutables :: STRING -> IO [FILEPATH]
+findExecutables :: OsString -> IO [OsPath]
 findExecutables binary =
   listTToList
     (findExecutablesLazyInternal findExecutablesInDirectoriesLazy binary)
@@ -887,23 +1025,23 @@ findExecutables binary =
 -- Windows is therefore equivalent to those on non-Windows platforms.
 --
 -- @since 1.2.4.0
-findExecutablesInDirectories :: [FILEPATH] -> STRING -> IO [FILEPATH]
+findExecutablesInDirectories :: [OsPath] -> OsString -> IO [OsPath]
 findExecutablesInDirectories path binary =
   listTToList (findExecutablesInDirectoriesLazy path binary)
 
-findExecutablesInDirectoriesLazy :: [FILEPATH] -> STRING -> ListT IO FILEPATH
+findExecutablesInDirectoriesLazy :: [OsPath] -> OsString -> ListT IO OsPath
 findExecutablesInDirectoriesLazy path binary =
   findFilesWithLazy isExecutable path (binary <.> exeExtension)
 
 -- | Test whether a file has executable permissions.
-isExecutable :: FILEPATH -> IO Bool
+isExecutable :: OsPath -> IO Bool
 isExecutable file = executable <$> getPermissions file
 
 -- | Search through the given list of directories for the given file.
 --
 -- The behavior is equivalent to 'findFileWith', returning only the first
 -- occurrence.  Details can be found in the documentation of 'findFileWith'.
-findFile :: [FILEPATH] -> STRING -> IO (Maybe FILEPATH)
+findFile :: [OsPath] -> OsString -> IO (Maybe OsPath)
 findFile = findFileWith (\ _ -> pure True)
 
 -- | Search through the given list of directories for the given file and
@@ -913,7 +1051,7 @@ findFile = findFileWith (\ _ -> pure True)
 -- documentation of 'findFilesWith'.
 --
 -- @since 1.2.1.0
-findFiles :: [FILEPATH] -> STRING -> IO [FILEPATH]
+findFiles :: [OsPath] -> OsString -> IO [OsPath]
 findFiles = findFilesWith (\ _ -> pure True)
 
 -- | Search through a given list of directories for a file that has the given
@@ -925,7 +1063,7 @@ findFiles = findFilesWith (\ _ -> pure True)
 -- documentation of 'findFilesWith'.
 --
 -- @since 1.2.6.0
-findFileWith :: (FILEPATH -> IO Bool) -> [FILEPATH] -> STRING -> IO (Maybe FILEPATH)
+findFileWith :: (OsPath -> IO Bool) -> [OsPath] -> OsString -> IO (Maybe OsPath)
 findFileWith f ds name = listTHead (findFilesWithLazy f ds name)
 
 -- | @findFilesWith predicate dirs name@ searches through the list of
@@ -946,15 +1084,15 @@ findFileWith f ds name = listTHead (findFilesWithLazy f ds name)
 -- otherwise.  This is irrespective of what search directories were given.
 --
 -- @since 1.2.1.0
-findFilesWith :: (FILEPATH -> IO Bool) -> [FILEPATH] -> STRING -> IO [FILEPATH]
+findFilesWith :: (OsPath -> IO Bool) -> [OsPath] -> OsString -> IO [OsPath]
 findFilesWith f ds name = listTToList (findFilesWithLazy f ds name)
 
 findFilesWithLazy
-  :: (FILEPATH -> IO Bool) -> [FILEPATH] -> STRING -> ListT IO FILEPATH
+  :: (OsPath -> IO Bool) -> [OsPath] -> OsString -> ListT IO OsPath
 findFilesWithLazy f dirs path
   -- make sure absolute paths are handled properly irrespective of 'dirs'
   -- https://github.com/haskell/directory/issues/72
-  | isAbsolute path = ListT (find [fromString ""])
+  | isAbsolute path = ListT (find [encodeFilepathUnsafe ""])
   | otherwise       = ListT (find dirs)
 
   where
@@ -971,14 +1109,14 @@ findFilesWithLazy f dirs path
 --   (usually @\"\"@ on POSIX systems and @\".exe\"@ on Windows or OS\/2).
 --
 -- @since 1.2.4.0
-exeExtension :: STRING
+exeExtension :: OsString
 exeExtension = exeExtensionInternal
 
 -- | Similar to 'listDirectory', but always includes the special entries (@.@
 -- and @..@).  (This applies to Windows as well.)
 --
 -- The operation may fail with the same exceptions as 'listDirectory'.
-getDirectoryContents :: FILEPATH -> IO [FILEPATH]
+getDirectoryContents :: OsPath -> IO [OsPath]
 getDirectoryContents path =
   ((`ioeSetFileName` decodeFilepathFuzzy path) .
    (`ioeAddLocation` "getDirectoryContents")) `modifyIOError` do
@@ -1015,9 +1153,9 @@ getDirectoryContents path =
 --
 -- @since 1.2.5.0
 --
-listDirectory :: FILEPATH -> IO [FILEPATH]
+listDirectory :: OsPath -> IO [OsPath]
 listDirectory path = filter f <$> getDirectoryContents path
-  where f filename = filename /= fromString "." && filename /= fromString ".."
+  where f filename = filename /= encodeFilepathUnsafe "." && filename /= encodeFilepathUnsafe ".."
 
 -- | Obtain the current working directory as an absolute path.
 --
@@ -1052,7 +1190,7 @@ listDirectory path = filter f <$> getDirectoryContents path
 -- * @UnsupportedOperation@
 -- The operating system has no notion of current working directory.
 --
-getCurrentDirectory :: IO FILEPATH
+getCurrentDirectory :: IO OsPath
 getCurrentDirectory =
   (`ioeAddLocation` "getCurrentDirectory") `modifyIOError` do
     specializeErrorString
@@ -1093,7 +1231,7 @@ getCurrentDirectory =
 -- The path refers to an existing non-directory object.
 -- @[ENOTDIR]@
 --
-setCurrentDirectory :: FILEPATH -> IO ()
+setCurrentDirectory :: OsPath -> IO ()
 setCurrentDirectory = setCurrentDirectoryInternal
 
 -- | Run an 'IO' action with the given working directory and restore the
@@ -1105,7 +1243,7 @@ setCurrentDirectory = setCurrentDirectoryInternal
 --
 -- @since 1.2.3.0
 --
-withCurrentDirectory :: FILEPATH  -- ^ Directory to execute in
+withCurrentDirectory :: OsPath  -- ^ Directory to execute in
                      -> IO a      -- ^ Action to be executed
                      -> IO a
 withCurrentDirectory dir action =
@@ -1116,7 +1254,7 @@ withCurrentDirectory dir action =
 -- | Obtain the size of a file in bytes.
 --
 -- @since 1.2.7.0
-getFileSize :: FILEPATH -> IO Integer
+getFileSize :: OsPath -> IO Integer
 getFileSize path =
   (`ioeAddLocation` "getFileSize") `modifyIOError` do
     fileSizeFromMetadata <$> getFileMetadata path
@@ -1126,7 +1264,7 @@ getFileSize path =
 -- function may return false even if the file does actually exist.
 --
 -- @since 1.2.7.0
-doesPathExist :: FILEPATH -> IO Bool
+doesPathExist :: OsPath -> IO Bool
 doesPathExist path = do
   (True <$ getFileMetadata path)
     `catchIOError` \ _ ->
@@ -1137,7 +1275,7 @@ exists and is either a directory or a symbolic link to a directory,
 and 'False' otherwise.
 -}
 
-doesDirectoryExist :: FILEPATH -> IO Bool
+doesDirectoryExist :: OsPath -> IO Bool
 doesDirectoryExist path = do
   pathIsDirectory path
     `catchIOError` \ _ ->
@@ -1147,13 +1285,13 @@ doesDirectoryExist path = do
 if the argument file exists and is not a directory, and 'False' otherwise.
 -}
 
-doesFileExist :: FILEPATH -> IO Bool
+doesFileExist :: OsPath -> IO Bool
 doesFileExist path = do
   (not <$> pathIsDirectory path)
     `catchIOError` \ _ ->
       pure False
 
-pathIsDirectory :: FILEPATH -> IO Bool
+pathIsDirectory :: OsPath -> IO Bool
 pathIsDirectory path =
   (`ioeAddLocation` "pathIsDirectory") `modifyIOError` do
     fileTypeIsDirectory . fileTypeFromMetadata <$> getFileMetadata path
@@ -1185,8 +1323,8 @@ pathIsDirectory path =
 --
 -- @since 1.3.1.0
 createFileLink
-  :: FILEPATH                           -- ^ path to the target file
-  -> FILEPATH                           -- ^ path of the link to be created
+  :: OsPath                           -- ^ path to the target file
+  -> OsPath                           -- ^ path of the link to be created
   -> IO ()
 createFileLink target link =
   (`ioeAddLocation` "createFileLink") `modifyIOError` do
@@ -1220,8 +1358,8 @@ createFileLink target link =
 --
 -- @since 1.3.1.0
 createDirectoryLink
-  :: FILEPATH                           -- ^ path to the target directory
-  -> FILEPATH                           -- ^ path of the link to be created
+  :: OsPath                           -- ^ path to the target directory
+  -> OsPath                           -- ^ path of the link to be created
   -> IO ()
 createDirectoryLink target link =
   (`ioeAddLocation` "createDirectoryLink") `modifyIOError` do
@@ -1235,7 +1373,7 @@ createDirectoryLink target link =
 -- See also: 'removeFile', which can remove an existing /file/ symbolic link.
 --
 -- @since 1.3.1.0
-removeDirectoryLink :: FILEPATH -> IO ()
+removeDirectoryLink :: OsPath -> IO ()
 removeDirectoryLink path =
   (`ioeAddLocation` "removeDirectoryLink") `modifyIOError` do
     removePathInternal linkToDirectoryIsDirectory path
@@ -1256,14 +1394,14 @@ removeDirectoryLink path =
 --   link.
 --
 -- @since 1.3.0.0
-pathIsSymbolicLink :: FILEPATH -> IO Bool
+pathIsSymbolicLink :: OsPath -> IO Bool
 pathIsSymbolicLink path =
   ((`ioeAddLocation` "pathIsSymbolicLink") .
    (`ioeSetFileName` decodeFilepathFuzzy path)) `modifyIOError` do
      fileTypeIsLink . fileTypeFromMetadata <$> getSymbolicLinkMetadata path
 
 {-# DEPRECATED isSymbolicLink "Use 'pathIsSymbolicLink' instead" #-}
-isSymbolicLink :: FILEPATH -> IO Bool
+isSymbolicLink :: OsPath -> IO Bool
 isSymbolicLink = pathIsSymbolicLink
 
 -- | Retrieve the target path of either a file or directory symbolic link.
@@ -1279,7 +1417,7 @@ isSymbolicLink = pathIsSymbolicLink
 -- links.
 --
 -- @since 1.3.1.0
-getSymbolicLinkTarget :: FILEPATH -> IO FILEPATH
+getSymbolicLinkTarget :: OsPath -> IO OsPath
 getSymbolicLinkTarget path =
   (`ioeAddLocation` "getSymbolicLinkTarget") `modifyIOError` do
     readSymbolicLink path
@@ -1299,7 +1437,7 @@ getSymbolicLinkTarget path =
 --
 -- @since 1.2.3.0
 --
-getAccessTime :: FILEPATH -> IO UTCTime
+getAccessTime :: OsPath -> IO UTCTime
 getAccessTime path =
   (`ioeAddLocation` "getAccessTime") `modifyIOError` do
     accessTimeFromMetadata <$> getFileMetadata (emptyToCurDir path)
@@ -1317,7 +1455,7 @@ getAccessTime path =
 -- resolution only if this package is compiled against @unix-2.6.0.0@ or later
 -- and the underlying filesystem supports them.
 --
-getModificationTime :: FILEPATH -> IO UTCTime
+getModificationTime :: OsPath -> IO UTCTime
 getModificationTime path =
   (`ioeAddLocation` "getModificationTime") `modifyIOError` do
     modificationTimeFromMetadata <$> getFileMetadata (emptyToCurDir path)
@@ -1345,7 +1483,7 @@ getModificationTime path =
 --
 -- @since 1.2.3.0
 --
-setAccessTime :: FILEPATH -> UTCTime -> IO ()
+setAccessTime :: OsPath -> UTCTime -> IO ()
 setAccessTime path atime =
   (`ioeAddLocation` "setAccessTime") `modifyIOError` do
     setFileTimes path (Just atime, Nothing)
@@ -1373,12 +1511,12 @@ setAccessTime path atime =
 --
 -- @since 1.2.3.0
 --
-setModificationTime :: FILEPATH -> UTCTime -> IO ()
+setModificationTime :: OsPath -> UTCTime -> IO ()
 setModificationTime path mtime =
   (`ioeAddLocation` "setModificationTime") `modifyIOError` do
     setFileTimes path (Nothing, Just mtime)
 
-setFileTimes :: FILEPATH -> (Maybe UTCTime, Maybe UTCTime) -> IO ()
+setFileTimes :: OsPath -> (Maybe UTCTime, Maybe UTCTime) -> IO ()
 setFileTimes _ (Nothing, Nothing) = return ()
 setFileTimes path (atime, mtime) =
   ((`ioeAddLocation` "setFileTimes") .
@@ -1409,7 +1547,7 @@ The operating system has no notion of home directory.
 The home directory for the current user does not exist, or
 cannot be found.
 -}
-getHomeDirectory :: IO FILEPATH
+getHomeDirectory :: IO OsPath
 getHomeDirectory =
   (`ioeAddLocation` "getHomeDirectory") `modifyIOError` do
     getHomeDirectoryInternal
@@ -1439,18 +1577,18 @@ getHomeDirectory =
 --
 --   @since 1.2.3.0
 getXdgDirectory :: XdgDirectory         -- ^ which special directory
-                -> FILEPATH             -- ^ a relative path that is appended
+                -> OsPath             -- ^ a relative path that is appended
                                         --   to the path; if empty, the base
                                         --   path is returned
-                -> IO FILEPATH
+                -> IO OsPath
 getXdgDirectory xdgDir suffix =
   (`ioeAddLocation` "getXdgDirectory") `modifyIOError` do
     simplify . (</> suffix) <$> do
       env <- lookupEnv $ case xdgDir of
-        XdgData   -> fromString "XDG_DATA_HOME"
-        XdgConfig -> fromString "XDG_CONFIG_HOME"
-        XdgCache  -> fromString "XDG_CACHE_HOME"
-        XdgState  -> fromString "XDG_STATE_HOME"
+        XdgData   -> encodeFilepathUnsafe "XDG_DATA_HOME"
+        XdgConfig -> encodeFilepathUnsafe "XDG_CONFIG_HOME"
+        XdgCache  -> encodeFilepathUnsafe "XDG_CACHE_HOME"
+        XdgState  -> encodeFilepathUnsafe "XDG_STATE_HOME"
       case env of
         Just path | isAbsolute path -> pure path
         _                           -> getXdgDirectoryFallback getHomeDirectory xdgDir
@@ -1463,12 +1601,12 @@ getXdgDirectory xdgDir suffix =
 --
 -- Refer to the docs of 'XdgDirectoryList' for more details.
 getXdgDirectoryList :: XdgDirectoryList -- ^ which special directory list
-                    -> IO [FILEPATH]
+                    -> IO [OsPath]
 getXdgDirectoryList xdgDirs =
   (`ioeAddLocation` "getXdgDirectoryList") `modifyIOError` do
     env <- lookupEnv $ case xdgDirs of
-      XdgDataDirs   -> fromString "XDG_DATA_DIRS"
-      XdgConfigDirs -> fromString "XDG_CONFIG_DIRS"
+      XdgDataDirs   -> encodeFilepathUnsafe "XDG_DATA_DIRS"
+      XdgConfigDirs -> encodeFilepathUnsafe "XDG_CONFIG_DIRS"
     case env of
       Nothing    -> getXdgDirectoryListFallback xdgDirs
       Just paths -> pure (splitSearchPath paths)
@@ -1499,9 +1637,9 @@ getXdgDirectoryList xdgDirs =
 --     The home directory for the current user does not exist, or cannot be
 --     found.
 --
-getAppUserDataDirectory :: FILEPATH     -- ^ a relative path that is appended
+getAppUserDataDirectory :: OsPath     -- ^ a relative path that is appended
                                         --   to the path
-                        -> IO FILEPATH
+                        -> IO OsPath
 getAppUserDataDirectory appName = do
   (`ioeAddLocation` "getAppUserDataDirectory") `modifyIOError` do
     getAppUserDataDirectoryInternal appName
@@ -1526,7 +1664,7 @@ The operating system has no notion of document directory.
 The document directory for the current user does not exist, or
 cannot be found.
 -}
-getUserDocumentsDirectory :: IO FILEPATH
+getUserDocumentsDirectory :: IO OsPath
 getUserDocumentsDirectory = do
   (`ioeAddLocation` "getUserDocumentsDirectory") `modifyIOError` do
     getUserDocumentsDirectoryInternal
@@ -1557,5 +1695,6 @@ The operating system has no notion of temporary directory.
 
 The function doesn\'t verify whether the path exists.
 -}
-getTemporaryDirectory :: IO FILEPATH
+getTemporaryDirectory :: IO OsPath
 getTemporaryDirectory = getTemporaryDirectoryInternal
+

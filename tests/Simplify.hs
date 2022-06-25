@@ -1,8 +1,9 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE OverloadedStrings #-}
 module Simplify where
+import System.Directory.Internal.Common.OsPath (simplifyWindows)
+import System.OsPath (normalise)
 #include "util.inl"
-import System.Directory.Internal (simplifyWindows)
-import System.FilePath (normalise)
 
 main :: TestEnv -> IO ()
 main _t = do

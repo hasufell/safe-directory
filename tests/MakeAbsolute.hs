@@ -1,11 +1,12 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE OverloadedStrings #-}
 module MakeAbsolute where
-#include "util.inl"
-import System.FilePath ((</>), addTrailingPathSeparator,
+import System.OsPath ((</>), addTrailingPathSeparator,
                         dropTrailingPathSeparator, normalise)
 #if defined(mingw32_HOST_OS)
-import System.FilePath (takeDrive)
+import System.OsPath (takeDrive)
 #endif
+#include "util.inl"
 
 main :: TestEnv -> IO ()
 main _t = do

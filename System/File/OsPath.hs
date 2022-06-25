@@ -1,3 +1,28 @@
+{-# LANGUAGE CPP #-}
+
+module System.File.OsPath where
+
+#if defined(mingw32_HOST_OS) || defined(__MINGW32__)
+import qualified System.File.Windows as P
+#else
+import qualified System.File.Posix as P
+#endif
+
+import Control.Exception (bracket)
+import System.IO (IOMode(..), Handle, hSetBinaryMode, hClose)
+import System.OsPath
+import System.OsString.Internal.Types
+
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as BSL
+
+-- | Open a file and return the 'Handle'.
+openFile :: OsPath -> IOMode -> IO Handle
+openFile (OsString fp) = P.openFile fp
+
+-- | Open an existing file and return the 'Handle'.
+openExistingFile :: OsPath -> IOMode -> IO Handle
+openExistingFile (OsString fp) = P.openExistingFile fp
 
 -- | Like 'openFile', but open the file in binary mode.
 -- On Windows, reading a file in text mode (which is the default)
@@ -10,7 +35,7 @@
 
 -- On POSIX systems, 'openBinaryFile' is an /interruptible operation/ as
 -- described in "Control.Exception".
-openBinaryFile :: FILE_PATH -> IOMode -> IO Handle
+openBinaryFile :: OsPath -> IOMode -> IO Handle
 openBinaryFile fp iomode = do
   h <- openFile fp iomode
   hSetBinaryMode h True
@@ -19,13 +44,13 @@ openBinaryFile fp iomode = do
 -- | Run an action on a file.
 --
 -- The 'Handle' is automatically closed afther the action.
-withFile :: FILE_PATH -> IOMode -> (Handle -> IO r) -> IO r
+withFile :: OsPath -> IOMode -> (Handle -> IO r) -> IO r
 withFile fp iomode action = bracket
   (openFile fp iomode)
   hClose
   action
 
-withBinaryFile :: FILE_PATH -> IOMode -> (Handle -> IO r) -> IO r
+withBinaryFile :: OsPath -> IOMode -> (Handle -> IO r) -> IO r
 withBinaryFile fp iomode action = bracket
   (openBinaryFile fp iomode)
   hClose
@@ -36,47 +61,47 @@ withBinaryFile fp iomode action = bracket
 -- The 'Handle' is not automatically closed to allow lazy IO. Use this
 -- with caution.
 withFile'
-  :: FILE_PATH -> IOMode -> (Handle -> IO r) -> IO r
+  :: OsPath -> IOMode -> (Handle -> IO r) -> IO r
 withFile' fp iomode action = do
   h <- openFile fp iomode
   action h
 
 withBinaryFile'
-  :: FILE_PATH -> IOMode -> (Handle -> IO r) -> IO r
+  :: OsPath -> IOMode -> (Handle -> IO r) -> IO r
 withBinaryFile' fp iomode action = do
   h <- openBinaryFile fp iomode
   action h
 
 -- | The 'readFile' function reads a file and returns the contents of the file
 -- as a 'ByteString'. The file is read lazily, on demand.
-readFile :: FILE_PATH -> IO BSL.ByteString
+readFile :: OsPath -> IO BSL.ByteString
 readFile fp = withFile' fp ReadMode BSL.hGetContents
 
 -- | The 'readFile'' function reads a file and returns the contents of the file
 -- as a 'ByteString'. The file is fully read before being returned.
 readFile'
-  :: FILE_PATH -> IO BS.ByteString
+  :: OsPath -> IO BS.ByteString
 readFile' fp = withFile fp ReadMode BS.hGetContents
 
 -- | The computation 'writeFile' @file str@ function writes the lazy 'ByteString' @str@,
 -- to the file @file@.
-writeFile :: FILE_PATH -> BSL.ByteString -> IO ()
+writeFile :: OsPath -> BSL.ByteString -> IO ()
 writeFile fp contents = withFile fp WriteMode (`BSL.hPut` contents)
 
 -- | The computation 'writeFile' @file str@ function writes the strict 'ByteString' @str@,
 -- to the file @file@.
 writeFile'
-  :: FILE_PATH -> BS.ByteString -> IO ()
+  :: OsPath -> BS.ByteString -> IO ()
 writeFile' fp contents = withFile fp WriteMode (`BS.hPut` contents)
 
 -- | The computation 'appendFile' @file str@ function appends the lazy 'ByteString' @str@,
 -- to the file @file@.
-appendFile :: FILE_PATH -> BSL.ByteString -> IO ()
+appendFile :: OsPath -> BSL.ByteString -> IO ()
 appendFile fp contents = withFile fp AppendMode (`BSL.hPut` contents)
 
 -- | The computation 'appendFile' @file str@ function appends the strict 'ByteString' @str@,
 -- to the file @file@.
 appendFile'
-  :: FILE_PATH -> BS.ByteString -> IO ()
+  :: OsPath -> BS.ByteString -> IO ()
 appendFile' fp contents = withFile fp AppendMode (`BS.hPut` contents)
 

@@ -1,8 +1,8 @@
 {-# LANGUAGE CPP #-}
 module FindFile001 where
-#include "util.inl"
 import qualified Data.List as List
-import System.FilePath ((</>))
+import System.OsPath ((</>))
+#include "util.inl"
 
 main :: TestEnv -> IO ()
 main _t = do

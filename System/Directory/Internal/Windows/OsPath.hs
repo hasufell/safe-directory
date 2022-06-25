@@ -1,3 +1,42 @@
+{-# LANGUAGE CPP #-}
+
+module System.Directory.Internal.Windows.OsPath where
+
+
+#if defined(mingw32_HOST_OS)
+
+#if defined(mingw32_HOST_OS)
+# if defined(i386_HOST_ARCH)
+#  define WINDOWS_CCONV stdcall
+# elif defined(x86_64_HOST_ARCH)
+#  define WINDOWS_CCONV ccall
+# else
+#  error Unknown mingw32 arch
+# endif
+#endif
+
+#include "HsBaseConfig.h"
+
+import qualified System.OsPath.Data.ByteString.Short.Word16 as L
+import qualified System.Win32.WindowsString.Types as Win32
+import qualified System.Win32.WindowsString.Shell as Win32
+import qualified System.Win32.WindowsString.File as Win32
+import qualified System.Win32.WindowsString.Info as Win32
+import System.OsPath.Types
+import System.OsString.Internal.Types
+import System.Directory.Internal.WindowsFFI.OsPath
+import System.Directory.Internal.WindowsFFI.Common
+import System.Directory.Internal.Common.OsPath
+import System.Directory.Internal.Config.OsPath (exeExtension)
+import System.OsPath
+  ( (</>)
+  , isPathSeparator
+  , isRelative
+  , pathSeparator
+  , splitDirectories
+  , takeExtension
+  )
+import Foreign.Ptr (castPtr)
 import Prelude ()
 import Data.List (stripPrefix)
 import System.Directory.Internal.Prelude
@@ -5,29 +44,63 @@ import Data.Time (UTCTime)
 import Data.Time.Clock.POSIX (POSIXTime, posixSecondsToUTCTime)
 import qualified System.Win32.Time as Win32
 
-createDirectoryInternal :: FILEPATH -> IO ()
+#if defined(i386_HOST_ARCH)
+# define WINDOWS_CCONV stdcall
+#elif defined(x86_64_HOST_ARCH)
+# define WINDOWS_CCONV ccall
+#else
+# error Unknown mingw32 arch
+#endif
+
+
+lookupEnv :: OsPath -> IO (Maybe OsPath)
+lookupEnv (OsString fp) = fmap OsString <$> lookupEnv' fp
+
+lookupEnv' :: WindowsString -> IO (Maybe WindowsString)
+lookupEnv' (WS name) = L.useAsCWString name $ \s -> try_size (castPtr s) 256
+  where
+    try_size s size = allocaArray (fromIntegral size) $ \p_value -> do
+      res <- c_GetEnvironmentVariable s p_value size
+      case res of
+        0 -> return Nothing
+        _ | res > size -> try_size s res -- Rare: size increased between calls to GetEnvironmentVariable
+          | otherwise  -> L.packCWString (castPtr p_value) >>= return . Just . WS
+
+foreign import WINDOWS_CCONV unsafe "windows.h GetEnvironmentVariableW"
+  c_GetEnvironmentVariable :: Win32.LPWSTR -> Win32.LPWSTR -> Win32.DWORD -> IO Win32.DWORD
+
+fromPlatformPath :: WindowsPath -> OsPath
+fromPlatformPath = OsString
+
+toPlatformPath :: OsPath -> WindowsPath
+toPlatformPath (OsString fp) = fp
+
+peekCWLen :: (Ptr CWchar, Int) -> IO OsPath
+peekCWLen (ptr, i) = fmap (OsString . WS) . L.packCWStringLen $ (castPtr ptr, i)
+
+createDirectoryInternal :: OsPath -> IO ()
 createDirectoryInternal path =
   (`ioeSetFileName` decodeFilepathFuzzy path) `modifyIOError` do
     path' <- furnishPath path
     Win32.createDirectory (unpackPlatform path') Nothing
 
-removePathInternal :: Bool -> FILEPATH -> IO ()
+removePathInternal :: Bool -> OsPath -> IO ()
 removePathInternal isDir path =
   (`ioeSetFileName` decodeFilepathFuzzy path) `modifyIOError` do
     furnishPath path
       >>= (if isDir then Win32.removeDirectory else Win32.deleteFile) . unpackPlatform
 
-renamePathInternal :: FILEPATH -> FILEPATH -> IO ()
+renamePathInternal :: OsPath -> OsPath -> IO ()
 renamePathInternal opath npath =
   (`ioeSetFileName` decodeFilepathFuzzy opath) `modifyIOError` do
     opath' <- furnishPath opath
     npath' <- furnishPath npath
     Win32.moveFileEx (unpackPlatform opath') (Just $ unpackPlatform npath') Win32.mOVEFILE_REPLACE_EXISTING
 
-copyFileWithMetadataInternal :: (Metadata -> FILEPATH -> IO ())
-                             -> (Metadata -> FILEPATH -> IO ())
-                             -> FILEPATH
-                             -> FILEPATH
+copyFileWithMetadataInternal :: (Metadata -> OsPath -> IO ())
+                             -> (Metadata -> OsPath -> IO ())
+                             -> OsPath
+                             -> OsPath
                              -> IO ()
 copyFileWithMetadataInternal _ _ src dst =
   (`ioeSetFileName` decodeFilepathFuzzy src) `modifyIOError` do
@@ -57,11 +130,11 @@ maxShareMode =
   Win32.fILE_SHARE_READ   .|.
   Win32.fILE_SHARE_WRITE
 
-win32_getLongPathName, win32_getShortPathName :: FILEPATH -> IO FILEPATH
+win32_getLongPathName, win32_getShortPathName :: OsPath -> IO OsPath
 win32_getLongPathName = fmap packPlatform . Win32.getLongPathName . unpackPlatform
 win32_getShortPathName = fmap packPlatform . Win32.getShortPathName . unpackPlatform
 
-win32_getFinalPathNameByHandle :: Win32.HANDLE -> Win32.DWORD -> IO FILEPATH
+win32_getFinalPathNameByHandle :: Win32.HANDLE -> Win32.DWORD -> IO OsPath
 win32_getFinalPathNameByHandle _h _flags =
   (`ioeSetLocation` "GetFinalPathNameByHandle") `modifyIOError` do
 #ifdef HAVE_GETFINALPATHNAMEBYHANDLEW
@@ -74,7 +147,7 @@ win32_getFinalPathNameByHandle _h _flags =
              Nothing Nothing)
 #endif
 
-getFinalPathName :: FILEPATH -> IO FILEPATH
+getFinalPathName :: OsPath -> IO OsPath
 getFinalPathName =
   (fromExtendedLengthPath <$>) . rawGetFinalPathName . toExtendedLengthPath
   where
@@ -110,7 +183,7 @@ deviceIoControl h code (inPtr, inSize) (outPtr, outSize) _ = do
       then Right . fromIntegral <$> peek lenPtr
       else Left <$> Win32.getLastError
 
-readSymbolicLink :: FILEPATH -> IO FILEPATH
+readSymbolicLink :: OsPath -> IO OsPath
 readSymbolicLink path =
   (`ioeSetFileName` decodeFilepathFuzzy path) `modifyIOError` do
     path' <- furnishPath path
@@ -137,17 +210,17 @@ readSymbolicLink path =
           _ -> throwIO (mkIOError InappropriateType
                                   "readSymbolicLink" Nothing Nothing)
   where
-    strip sn = fromMaybe sn (pack <$> stripPrefix (unpack $ fromString "\\??\\") (unpack sn))
+    strip sn = fromMaybe sn (pack <$> stripPrefix (unpack $ encodeFilepathUnsafe "\\??\\") (unpack sn))
 
 
 -- | On Windows, equivalent to 'simplifyWindows'.
-simplify :: FILEPATH -> FILEPATH
+simplify :: OsPath -> OsPath
 simplify = simplifyWindows
 
 -- | Normalise the path separators and prepend the @"\\\\?\\"@ prefix if
 -- necessary or possible.  This is used for symbolic links targets because
 -- they can't handle forward slashes.
-normaliseSeparators :: FILEPATH -> FILEPATH
+normaliseSeparators :: OsPath -> OsPath
 normaliseSeparators path
   | isRelative path = pack (normaliseSep <$> unpack path)
   | otherwise = toExtendedLengthPath path
@@ -156,7 +229,7 @@ normaliseSeparators path
 -- | 'simplify' the path and prepend the @"\\\\?\\"@ if possible.  This
 -- function can sometimes be used to bypass the @MAX_PATH@ length restriction
 -- in Windows API calls.
-toExtendedLengthPath :: FILEPATH -> FILEPATH
+toExtendedLengthPath :: OsPath -> OsPath
 toExtendedLengthPath path
   | isRelative path = simplifiedPath
   | otherwise =
@@ -164,8 +237,8 @@ toExtendedLengthPath path
         '\\' : '?'  : '?' : '\\' : _ -> simplifiedPath
         '\\' : '\\' : '?' : '\\' : _ -> simplifiedPath
         '\\' : '\\' : '.' : '\\' : _ -> simplifiedPath
-        '\\' : '\\' : _              -> fromString "\\\\?\\UNC" <> pack (tail simplifiedPath')
-        _ -> fromString "\\\\?\\" <> simplifiedPath
+        '\\' : '\\' : _              -> encodeFilepathUnsafe "\\\\?\\UNC" <> pack (tail simplifiedPath')
+        _ -> encodeFilepathUnsafe "\\\\?\\" <> simplifiedPath
   where simplifiedPath = simplify path
         simplifiedPath' = unpack simplifiedPath
 
@@ -175,7 +248,7 @@ toExtendedLengthPath path
 --
 -- This function never fails.  If it doesn't understand the path, it just
 -- returns the path unchanged.
-furnishPath :: FILEPATH -> IO FILEPATH
+furnishPath :: OsPath -> IO OsPath
 furnishPath path =
   (toExtendedLengthPath <$> rawPrependCurrentDirectory path)
     `catchIOError` \ _ ->
@@ -183,7 +256,7 @@ furnishPath path =
 
 -- | Strip the @"\\\\?\\"@ prefix if possible.
 -- The prefix is kept if the meaning of the path would otherwise change.
-fromExtendedLengthPath :: FILEPATH -> FILEPATH
+fromExtendedLengthPath :: OsPath -> OsPath
 fromExtendedLengthPath ePath =
   case ePath' of
     c1 : c2 : c3 : c4 : path
@@ -196,7 +269,7 @@ fromExtendedLengthPath ePath =
           | toChar c5 == 'U'
           , toChar c6 == 'N'
           , toChar c7 == 'C'
-          , toChar c8 == '\\' -> fromString "\\\\" <> pack rest
+          , toChar c8 == '\\' -> encodeFilepathUnsafe "\\\\" <> pack rest
         drive : col : subpath
           -- if the path is not "regular", then the prefix is necessary
           -- to ensure the path is interpreted literally
@@ -208,10 +281,10 @@ fromExtendedLengthPath ePath =
     ePath' = unpack ePath
     isPathRegular path =
       not ('/' `elem` (toChar <$> path) ||
-           fromString "." `elem` splitDirectories (pack path) ||
-           fromString ".." `elem` splitDirectories (pack path))
+           encodeFilepathUnsafe "." `elem` splitDirectories (pack path) ||
+           encodeFilepathUnsafe ".." `elem` splitDirectories (pack path))
 
-getPathNameWith :: (Ptr CWchar -> Win32.DWORD -> IO Win32.DWORD) -> IO FILEPATH
+getPathNameWith :: (Ptr CWchar -> Win32.DWORD -> IO Win32.DWORD) -> IO OsPath
 getPathNameWith cFunc = do
   let getPathNameWithLen len = do
         allocaArray (fromIntegral len) $ \ ptrPathOut -> do
@@ -229,31 +302,31 @@ getPathNameWith cFunc = do
         Left _ -> throwIO (mkIOError OtherError "" Nothing Nothing
                            `ioeSetErrorString` "path changed unexpectedly")
 
-canonicalizePathWith :: ((FILEPATH -> IO FILEPATH) -> FILEPATH -> IO FILEPATH)
-                     -> FILEPATH
-                     -> IO FILEPATH
+canonicalizePathWith :: ((OsPath -> IO OsPath) -> OsPath -> IO OsPath)
+                     -> OsPath
+                     -> IO OsPath
 canonicalizePathWith attemptRealpath = attemptRealpath getFinalPathName
 
-canonicalizePathSimplify :: FILEPATH -> IO FILEPATH
+canonicalizePathSimplify :: OsPath -> IO OsPath
 canonicalizePathSimplify path =
   getFullPathName path
     `catchIOError` \ _ ->
       pure path
 
-searchPathEnvForExes :: STRING -> IO (Maybe FILEPATH)
+searchPathEnvForExes :: OsString -> IO (Maybe OsPath)
 searchPathEnvForExes binary = fmap fromPlatformPath <$> (Win32.searchPath Nothing (toPlatformPath binary) $ Just (toPlatformPath exeExtension))
 
-findExecutablesLazyInternal :: ([FILEPATH] -> STRING -> ListT IO FILEPATH)
-                            -> STRING
-                            -> ListT IO FILEPATH
+findExecutablesLazyInternal :: ([OsPath] -> OsString -> ListT IO OsPath)
+                            -> OsString
+                            -> ListT IO OsPath
 findExecutablesLazyInternal _ = maybeToListT . searchPathEnvForExes
 
-exeExtensionInternal :: STRING
+exeExtensionInternal :: OsString
 exeExtensionInternal = exeExtension
 
-getDirectoryContentsInternal :: FILEPATH -> IO [FILEPATH]
+getDirectoryContentsInternal :: OsPath -> IO [OsPath]
 getDirectoryContentsInternal path = do
-  query <- furnishPath (path </> fromString "*")
+  query <- furnishPath (path </> encodeFilepathUnsafe "*")
   bracket
     (Win32.findFirstFile $ toPlatformPath query)
     (\ (h, _) -> Win32.findClose h)
@@ -261,7 +334,7 @@ getDirectoryContentsInternal path = do
   where
     -- we needn't worry about empty directories: a directory always
     -- has at least "." and ".." entries
-    loop :: Win32.HANDLE -> Win32.FindData -> [FILEPATH] -> IO [FILEPATH]
+    loop :: Win32.HANDLE -> Win32.FindData -> [OsPath] -> IO [OsPath]
     loop h fdat acc = do
       filename <- Win32.getFindDataFileName fdat
       more <- Win32.findNextFile h fdat
@@ -270,15 +343,15 @@ getDirectoryContentsInternal path = do
         else pure (fromPlatformPath filename : acc)
              -- no need to reverse, ordering is undefined
 
-getCurrentDirectoryInternal :: IO FILEPATH
+getCurrentDirectoryInternal :: IO OsPath
 getCurrentDirectoryInternal = fromPlatformPath <$> Win32.getCurrentDirectory
 
-getFullPathName :: FILEPATH -> IO FILEPATH
+getFullPathName :: OsPath -> IO OsPath
 getFullPathName path =
   (fromExtendedLengthPath . fromPlatformPath) <$> Win32.getFullPathName (toPlatformPath $ toExtendedLengthPath path)
 
 -- | Similar to 'prependCurrentDirectory' but fails for empty paths.
-rawPrependCurrentDirectory :: FILEPATH -> IO FILEPATH
+rawPrependCurrentDirectory :: OsPath -> IO OsPath
 rawPrependCurrentDirectory path
   | isRelative path =
     ((`ioeAddLocation` "prependCurrentDirectory") .
@@ -295,15 +368,15 @@ rawPrependCurrentDirectory path
 -- operation may throw exceptions.
 --
 -- Empty paths are treated as the current directory.
-prependCurrentDirectory :: FILEPATH -> IO FILEPATH
+prependCurrentDirectory :: OsPath -> IO OsPath
 prependCurrentDirectory = rawPrependCurrentDirectory . emptyToCurDir
 
 -- SetCurrentDirectory does not support long paths even with the \\?\ prefix
 -- https://ghc.haskell.org/trac/ghc/ticket/13373#comment:6
-setCurrentDirectoryInternal :: FILEPATH -> IO ()
+setCurrentDirectoryInternal :: OsPath -> IO ()
 setCurrentDirectoryInternal = Win32.setCurrentDirectory . toPlatformPath
 
-createSymbolicLinkUnpriv :: STRING -> STRING -> Bool -> IO ()
+createSymbolicLinkUnpriv :: OsString -> OsString -> Bool -> IO ()
 createSymbolicLinkUnpriv link _target _isDir =
 #ifdef HAVE_CREATESYMBOLICLINKW
   withCWString link $ \ pLink ->
@@ -346,7 +419,7 @@ createSymbolicLinkUnpriv link _target _isDir =
 linkToDirectoryIsDirectory :: Bool
 linkToDirectoryIsDirectory = True
 
-createSymbolicLink :: Bool -> FILEPATH -> FILEPATH -> IO ()
+createSymbolicLink :: Bool -> OsPath -> OsPath -> IO ()
 createSymbolicLink isDir target link =
   (`ioeSetFileName` decodeFilepathFuzzy link) `modifyIOError` do
     -- normaliseSeparators ensures the target gets normalised properly
@@ -355,7 +428,7 @@ createSymbolicLink isDir target link =
 
 type Metadata = Win32.BY_HANDLE_FILE_INFORMATION
 
-getSymbolicLinkMetadata :: FILEPATH -> IO Metadata
+getSymbolicLinkMetadata :: OsPath -> IO Metadata
 getSymbolicLinkMetadata path =
   (`ioeSetFileName` decodeFilepathFuzzy path) `modifyIOError` do
     path' <- furnishPath path
@@ -365,7 +438,7 @@ getSymbolicLinkMetadata path =
     bracket open Win32.closeHandle $ \ h -> do
       Win32.getFileInformationByHandle h
 
-getFileMetadata :: FILEPATH -> IO Metadata
+getFileMetadata :: OsPath -> IO Metadata
 getFileMetadata path =
   (`ioeSetFileName` decodeFilepathFuzzy path) `modifyIOError` do
     path' <- furnishPath path
@@ -410,14 +483,14 @@ posixToWindowsTime :: POSIXTime -> Win32.FILETIME
 posixToWindowsTime t = Win32.FILETIME $
   truncate (t * 10000000 + windowsPosixEpochDifference)
 
-setTimes :: FILEPATH -> (Maybe POSIXTime, Maybe POSIXTime) -> IO ()
+setTimes :: OsPath -> (Maybe POSIXTime, Maybe POSIXTime) -> IO ()
 setTimes path' (atime', mtime') =
   bracket (openFileHandle path' Win32.gENERIC_WRITE)
           Win32.closeHandle $ \ handle ->
   Win32.setFileTime handle Nothing (posixToWindowsTime <$> atime') (posixToWindowsTime <$> mtime')
 
 -- | Open the handle of an existing file or directory.
-openFileHandle :: STRING -> Win32.AccessMode -> IO Win32.HANDLE
+openFileHandle :: OsString -> Win32.AccessMode -> IO Win32.HANDLE
 openFileHandle path mode =
   (`ioeSetFileName` decodeFilepathFuzzy path) `modifyIOError` do
     path' <- furnishPath path
@@ -438,7 +511,7 @@ setWriteMode :: Bool -> Mode -> Mode
 setWriteMode False m = m .|. Win32.fILE_ATTRIBUTE_READONLY
 setWriteMode True  m = m .&. complement Win32.fILE_ATTRIBUTE_READONLY
 
-setFileMode :: FILEPATH -> Mode -> IO ()
+setFileMode :: OsPath -> Mode -> IO ()
 setFileMode path mode =
   (`ioeSetFileName` decodeFilepathFuzzy path) `modifyIOError` do
     path' <- furnishPath path
@@ -446,13 +519,13 @@ setFileMode path mode =
 
 -- | A restricted form of 'setFileMode' that only sets the permission bits.
 -- For Windows, this means only the "read-only" attribute is affected.
-setFilePermissions :: FILEPATH -> Mode -> IO ()
+setFilePermissions :: OsPath -> Mode -> IO ()
 setFilePermissions path m = do
   m' <- modeFromMetadata <$> getFileMetadata path
   setFileMode path ((m' .&. complement Win32.fILE_ATTRIBUTE_READONLY) .|.
                     (m  .&. Win32.fILE_ATTRIBUTE_READONLY))
 
-getAccessPermissions :: FILEPATH -> IO Permissions
+getAccessPermissions :: OsPath -> IO Permissions
 getAccessPermissions path = do
   m <- getFileMetadata path
   let isDir = fileTypeIsDirectory (fileTypeFromMetadata m)
@@ -466,19 +539,19 @@ getAccessPermissions path = do
        , searchable = isDir
        }
 
-setAccessPermissions :: FILEPATH -> Permissions -> IO ()
+setAccessPermissions :: OsPath -> Permissions -> IO ()
 setAccessPermissions path Permissions{writable = w} = do
   setFilePermissions path (setWriteMode w 0)
 
-getFolderPath :: Win32.CSIDL -> IO FILEPATH
+getFolderPath :: Win32.CSIDL -> IO OsPath
 getFolderPath what = fromPlatformPath <$> (Win32.sHGetFolderPath nullPtr what nullPtr 0)
 
-getHomeDirectoryInternal :: IO FILEPATH
+getHomeDirectoryInternal :: IO OsPath
 getHomeDirectoryInternal =
   getFolderPath Win32.cSIDL_PROFILE `catchIOError` \ _ ->
     getFolderPath Win32.cSIDL_WINDOWS
 
-getXdgDirectoryFallback :: IO FILEPATH -> XdgDirectory -> IO FILEPATH
+getXdgDirectoryFallback :: IO OsPath -> XdgDirectory -> IO OsPath
 getXdgDirectoryFallback _ xdgDir = do
   case xdgDir of
     XdgData   -> getFolderPath Win32.cSIDL_APPDATA
@@ -486,18 +559,20 @@ getXdgDirectoryFallback _ xdgDir = do
     XdgCache  -> getFolderPath win32_cSIDL_LOCAL_APPDATA
     XdgState  -> getFolderPath win32_cSIDL_LOCAL_APPDATA
 
-getXdgDirectoryListFallback :: XdgDirectoryList -> IO [FILEPATH]
+getXdgDirectoryListFallback :: XdgDirectoryList -> IO [OsPath]
 getXdgDirectoryListFallback _ =
   pure <$> getFolderPath win32_cSIDL_COMMON_APPDATA
 
-getAppUserDataDirectoryInternal :: FILEPATH -> IO FILEPATH
+getAppUserDataDirectoryInternal :: OsPath -> IO OsPath
 getAppUserDataDirectoryInternal appName =
-  (\ appData -> appData <> (fromString "\\" <> appName))
+  (\ appData -> appData <> (encodeFilepathUnsafe "\\" <> appName))
   <$> getXdgDirectoryFallback getHomeDirectoryInternal XdgData
 
-getUserDocumentsDirectoryInternal :: IO FILEPATH
+getUserDocumentsDirectoryInternal :: IO OsPath
 getUserDocumentsDirectoryInternal = getFolderPath Win32.cSIDL_PERSONAL
 
-getTemporaryDirectoryInternal :: IO FILEPATH
+getTemporaryDirectoryInternal :: IO OsPath
 getTemporaryDirectoryInternal = fromPlatformPath <$> Win32.getTemporaryDirectory
 
+
+#endif

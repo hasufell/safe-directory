@@ -1,7 +1,7 @@
 {-# LANGUAGE CPP #-}
 module FileTime where
-#include "util.inl"
 import Data.Time.Clock (addUTCTime, getCurrentTime)
+#include "util.inl"
 
 main :: TestEnv -> IO ()
 main _t = do

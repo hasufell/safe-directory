@@ -1,9 +1,10 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE OverloadedStrings #-}
 module RemoveDirectoryRecursive001 where
-#include "util.inl"
-import System.FilePath ((</>), normalise)
+import System.OsPath ((</>), normalise)
 import qualified Data.List as List
 import TestUtils
+#include "util.inl"
 
 main :: TestEnv -> IO ()
 main _t = do
@@ -85,5 +86,5 @@ main _t = do
     getDirectoryContents  tmpD
 
   where testName = "removeDirectoryRecursive001"
-        tmpD  = testName ++ ".tmp"
+        tmpD  = testName <> ".tmp"
         tmp s = tmpD </> normalise s

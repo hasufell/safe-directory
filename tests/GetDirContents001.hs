@@ -1,8 +1,8 @@
 {-# LANGUAGE CPP #-}
 module GetDirContents001 where
-#include "util.inl"
-import System.FilePath ((</>))
+import System.OsPath ((</>))
 import qualified Data.List as List
+#include "util.inl"
 
 main :: TestEnv -> IO ()
 main _t = do
@@ -12,7 +12,7 @@ main _t = do
   T(expectEq) () [] . List.sort =<<
     listDirectory dir
   names <- for [1 .. 100 :: Int] $ \ i -> do
-    let name = 'f' : show i
+    let name = "f" <> fromString (show i)
     writeFile (dir </> name) ""
     return name
   T(expectEq) () (List.sort (specials <> names)) . List.sort =<<

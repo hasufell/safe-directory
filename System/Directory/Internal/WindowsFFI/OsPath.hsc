@@ -1,6 +1,6 @@
 {-# LANGUAGE CPP #-}
 
-module System.Directory.Internal.WindowsFFI.AbstractFilePath where
+module System.Directory.Internal.WindowsFFI.OsPath where
 
 #include <HsDirectoryConfig.h>
 #if defined(mingw32_HOST_OS)
@@ -17,7 +17,7 @@ module System.Directory.Internal.WindowsFFI.AbstractFilePath where
 #include <System/Directory/Internal/windows_ext.h>
 
 import System.OsString.Internal.Types
-import System.AbstractFilePath.Data.ByteString.Short.Word16 (packCWStringLen)
+import System.OsPath.Data.ByteString.Short.Word16 (packCWStringLen)
 import Prelude ()
 import System.Directory.Internal.Prelude
 import qualified System.Win32 as Win32

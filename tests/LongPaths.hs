@@ -1,8 +1,9 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE OverloadedStrings #-}
 module LongPaths where
-#include "util.inl"
 import TestUtils
-import System.FilePath ((</>))
+import System.OsPath ((</>))
+#include "util.inl"
 
 main :: TestEnv -> IO ()
 main _t = do

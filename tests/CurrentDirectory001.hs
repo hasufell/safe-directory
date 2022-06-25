@@ -1,7 +1,7 @@
 {-# LANGUAGE CPP #-}
 module CurrentDirectory001 where
-#include "util.inl"
 import qualified Data.List as List
+#include "util.inl"
 
 main :: TestEnv -> IO ()
 main _t = do

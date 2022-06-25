@@ -1,27 +1,46 @@
+{-# LANGUAGE CPP #-}
+
+module System.Directory.Internal.Posix.OsPath where
+
+#if !defined(mingw32_HOST_OS)
+import System.Directory.Internal.PosixFFI
+import qualified System.OsPath.Data.ByteString.Short as L
+import System.Directory.Internal.Common.OsPath
+
+import System.OsPath hiding ( decodeFS )
+import System.OsString.Internal.Types
+import System.OsPath.Posix (decodeFS)
+import System.Directory.Internal.Config.OsPath (exeExtension)
+
+import qualified System.Posix.Env.PosixString as PS
+import qualified System.Posix.Directory.PosixPath as Posix
+import qualified System.Posix.Files.PosixString as Posix
+
+import System.IO.Error (doesNotExistErrorType)
+
 import Prelude ()
 import System.Directory.Internal.Prelude hiding (lookupEnv, getEnv)
 #ifdef HAVE_UTIMENSAT
 import System.Directory.Internal.C_utimensat
 #endif
-import Data.String ( fromString )
 import Data.Time (UTCTime)
 import Data.Time.Clock.POSIX (POSIXTime)
 import qualified Data.Time.Clock.POSIX as POSIXTime
 import qualified System.Posix.Types as Posix
 import qualified System.Posix.User as PU
 
-createDirectoryInternal :: FILEPATH -> IO ()
+createDirectoryInternal :: OsPath -> IO ()
 createDirectoryInternal path = Posix.createDirectory (unpackPlatform path) 0o777
 
-removePathInternal :: Bool -> FILEPATH -> IO ()
+removePathInternal :: Bool -> OsPath -> IO ()
 removePathInternal True  = Posix.removeDirectory . unpackPlatform
 removePathInternal False = Posix.removeLink . unpackPlatform
 
-renamePathInternal :: FILEPATH -> FILEPATH -> IO ()
+renamePathInternal :: OsPath -> OsPath -> IO ()
 renamePathInternal f t = Posix.rename (unpackPlatform f) (unpackPlatform t)
 
 -- | On POSIX, equivalent to 'simplifyPosix'.
-simplify :: FILEPATH -> FILEPATH
+simplify :: OsPath -> OsPath
 simplify = simplifyPosix
 
 
@@ -37,7 +56,6 @@ c_PATH_MAX | c_PATH_MAX' > toInteger maxValue = Nothing
 c_PATH_MAX = Nothing
 #endif
 
-
 withRealpath :: CString -> (CString -> IO a) -> IO a
 withRealpath path action = case c_PATH_MAX of
   Nothing ->
@@ -49,21 +67,21 @@ withRealpath path action = case c_PATH_MAX of
     allocaBytes (pathMax + 1) (realpath >=> action)
   where realpath = throwErrnoIfNull "" . c_realpath path
 
-canonicalizePathSimplify :: FILEPATH -> IO FILEPATH
+canonicalizePathSimplify :: OsPath -> IO OsPath
 canonicalizePathSimplify = pure
 
-findExecutablesLazyInternal :: ([FILEPATH] -> STRING -> ListT IO FILEPATH)
-                            -> STRING
-                            -> ListT IO FILEPATH
+findExecutablesLazyInternal :: ([OsPath] -> OsString -> ListT IO OsPath)
+                            -> OsString
+                            -> ListT IO OsPath
 findExecutablesLazyInternal findExecutablesInDirectoriesLazy binary =
   liftJoinListT $ do
     path <- getPath
     pure (findExecutablesInDirectoriesLazy path binary)
 
-exeExtensionInternal :: STRING
+exeExtensionInternal :: OsString
 exeExtensionInternal = exeExtension
 
-getDirectoryContentsInternal :: FILEPATH -> IO [FILEPATH]
+getDirectoryContentsInternal :: OsPath -> IO [OsPath]
 getDirectoryContentsInternal path =
   fmap packPlatform <$> bracket
     (Posix.openDirStream $ unpackPlatform path)
@@ -74,11 +92,11 @@ getDirectoryContentsInternal path =
       where
         loop acc = do
           e <- Posix.readDirStream dirp
-          if e == fromString ""
+          if OsString e == encodeFilepathUnsafe ""
             then pure (acc [])
             else loop (acc . (e:))
 
-getCurrentDirectoryInternal :: IO FILEPATH
+getCurrentDirectoryInternal :: IO OsPath
 getCurrentDirectoryInternal = packPlatform <$> Posix.getWorkingDirectory
 
 -- | Convert a path into an absolute path.  If the given path is relative, the
@@ -90,7 +108,7 @@ getCurrentDirectoryInternal = packPlatform <$> Posix.getWorkingDirectory
 -- operation may throw exceptions.
 --
 -- Empty paths are treated as the current directory.
-prependCurrentDirectory :: FILEPATH -> IO FILEPATH
+prependCurrentDirectory :: OsPath -> IO OsPath
 prependCurrentDirectory path
   | isRelative path =
     ((`ioeAddLocation` "prependCurrentDirectory") .
@@ -98,24 +116,24 @@ prependCurrentDirectory path
       (</> path) <$> getCurrentDirectoryInternal
   | otherwise = pure path
 
-setCurrentDirectoryInternal :: FILEPATH -> IO ()
+setCurrentDirectoryInternal :: OsPath -> IO ()
 setCurrentDirectoryInternal = Posix.changeWorkingDirectory . unpackPlatform
 
 linkToDirectoryIsDirectory :: Bool
 linkToDirectoryIsDirectory = False
 
-createSymbolicLink :: Bool -> FILEPATH -> FILEPATH -> IO ()
+createSymbolicLink :: Bool -> OsPath -> OsPath -> IO ()
 createSymbolicLink _ f t = Posix.createSymbolicLink (unpackPlatform f) (unpackPlatform t)
 
-readSymbolicLink :: FILEPATH -> IO FILEPATH
+readSymbolicLink :: OsPath -> IO OsPath
 readSymbolicLink = fmap packPlatform . Posix.readSymbolicLink . unpackPlatform
 
 type Metadata = Posix.FileStatus
 
-getSymbolicLinkMetadata :: FILEPATH -> IO Metadata
+getSymbolicLinkMetadata :: OsPath -> IO Metadata
 getSymbolicLinkMetadata = Posix.getSymbolicLinkStatus . unpackPlatform
 
-getFileMetadata :: FILEPATH -> IO Metadata
+getFileMetadata :: OsPath -> IO Metadata
 getFileMetadata = Posix.getFileStatus . unpackPlatform
 
 fileTypeFromMetadata :: Metadata -> FileType
@@ -166,13 +184,13 @@ setWriteMode :: Bool -> Mode -> Mode
 setWriteMode False m = m .&. complement allWriteMode
 setWriteMode True  m = m .|. allWriteMode
 
-setFileMode :: FILEPATH -> Mode -> IO ()
+setFileMode :: OsPath -> Mode -> IO ()
 setFileMode = Posix.setFileMode . unpackPlatform
 
-setFilePermissions :: FILEPATH -> Mode -> IO ()
+setFilePermissions :: OsPath -> Mode -> IO ()
 setFilePermissions = setFileMode
 
-getAccessPermissions :: FILEPATH -> IO Permissions
+getAccessPermissions :: OsPath -> IO Permissions
 getAccessPermissions path = do
   m <- getFileMetadata path
   let isDir = fileTypeIsDirectory (fileTypeFromMetadata m)
@@ -186,7 +204,7 @@ getAccessPermissions path = do
        , searchable = x && isDir
        }
 
-setAccessPermissions :: FILEPATH -> Permissions -> IO ()
+setAccessPermissions :: OsPath -> Permissions -> IO ()
 setAccessPermissions path (Permissions r w e s) = do
   m <- getFileMetadata path
   setFileMode path (modifyBit (e || s) Posix.ownerExecuteMode .
@@ -198,23 +216,23 @@ setAccessPermissions path (Permissions r w e s) = do
     modifyBit False b m = m .&. complement b
     modifyBit True  b m = m .|. b
 
-copyOwnerFromStatus :: Posix.FileStatus -> FILEPATH -> IO ()
+copyOwnerFromStatus :: Posix.FileStatus -> OsPath -> IO ()
 copyOwnerFromStatus st dst = do
   Posix.setOwnerAndGroup (unpackPlatform dst) (Posix.fileOwner st) (-1)
 
-copyGroupFromStatus :: Posix.FileStatus -> FILEPATH -> IO ()
+copyGroupFromStatus :: Posix.FileStatus -> OsPath -> IO ()
 copyGroupFromStatus st dst = do
   Posix.setOwnerAndGroup (unpackPlatform dst) (-1) (Posix.fileGroup st)
 
-tryCopyOwnerAndGroupFromStatus :: Posix.FileStatus -> FILEPATH -> IO ()
+tryCopyOwnerAndGroupFromStatus :: Posix.FileStatus -> OsPath -> IO ()
 tryCopyOwnerAndGroupFromStatus st dst = do
   ignoreIOExceptions (copyOwnerFromStatus st dst)
   ignoreIOExceptions (copyGroupFromStatus st dst)
 
-copyFileWithMetadataInternal :: (Metadata -> FILEPATH -> IO ())
-                             -> (Metadata -> FILEPATH -> IO ())
-                             -> FILEPATH
-                             -> FILEPATH
+copyFileWithMetadataInternal :: (Metadata -> OsPath -> IO ())
+                             -> (Metadata -> OsPath -> IO ())
+                             -> OsPath
+                             -> OsPath
                              -> IO ()
 copyFileWithMetadataInternal copyPermissionsFromMetadata
                              copyTimesFromMetadata
@@ -226,7 +244,7 @@ copyFileWithMetadataInternal copyPermissionsFromMetadata
   copyPermissionsFromMetadata st dst
   copyTimesFromMetadata st dst
 
-setTimes :: FILEPATH -> (Maybe POSIXTime, Maybe POSIXTime) -> IO ()
+setTimes :: OsPath -> (Maybe POSIXTime, Maybe POSIXTime) -> IO ()
 #ifdef HAVE_UTIMENSAT
 setTimes path' (atime', mtime') =
   withFilePath path' $ \ path'' ->
@@ -245,7 +263,7 @@ setTimes path' (atime', mtime') = do
     (fromMaybe (POSIXTime.utcTimeToPOSIXSeconds mtimeOld) mtime')
 
 setFileTimes' ::
-  FILEPATH -> POSIXTime -> POSIXTime -> IO ()
+  OsPath -> POSIXTime -> POSIXTime -> IO ()
 # if MIN_VERSION_unix(2, 7, 0)
 setFileTimes' pth atime' mtime' = Posix.setFileTimesHiRes (unpackPlatform pth) atime' mtime'
 #  else
@@ -257,40 +275,59 @@ setFileTimes' pth atime' mtime' =
 #endif
 
 -- | Get the contents of the @PATH@ environment variable.
-getPath :: IO [FILEPATH]
-getPath = splitSearchPath <$> getEnv (fromString "PATH")
+getPath :: IO [OsPath]
+getPath = splitSearchPath <$> getEnv (encodeFilepathUnsafe "PATH")
 
 -- | $HOME is preferred, because the user has control over it. However, POSIX
 -- doesn't define it as a mandatory variable, so fall back to `getpwuid_r`.
-getHomeDirectoryInternal :: IO FILEPATH
+getHomeDirectoryInternal :: IO OsPath
 getHomeDirectoryInternal = do
-  e <- lookupEnv (fromString "HOME")
+  e <- lookupEnv (encodeFilepathUnsafe "HOME")
   case e of
        Just fp -> pure fp
-       -- TODO: fromString here is bad, but unix's System.Posix.User.UserEntry does not have ByteString/OsString variants
-       Nothing -> fromString <$> (PU.homeDirectory <$> (PU.getEffectiveUserID >>= PU.getUserEntryForID))
+       -- TODO: encodeFilepathUnsafe here is bad, but unix's System.Posix.User.UserEntry does not have ByteString/OsString variants
+       Nothing -> (PU.homeDirectory <$> (PU.getEffectiveUserID >>= PU.getUserEntryForID)) >>= encodeFS
 
-getXdgDirectoryFallback :: IO FILEPATH -> XdgDirectory -> IO FILEPATH
+getXdgDirectoryFallback :: IO OsPath -> XdgDirectory -> IO OsPath
 getXdgDirectoryFallback getHomeDirectory xdgDir = do
   (<$> getHomeDirectory) $ flip (</>) $ case xdgDir of
-    XdgData   -> fromString ".local/share"
-    XdgConfig -> fromString ".config"
-    XdgCache  -> fromString ".cache"
-    XdgState  -> fromString ".local/state"
+    XdgData   -> encodeFilepathUnsafe ".local/share"
+    XdgConfig -> encodeFilepathUnsafe ".config"
+    XdgCache  -> encodeFilepathUnsafe ".cache"
+    XdgState  -> encodeFilepathUnsafe ".local/state"
 
-getXdgDirectoryListFallback :: XdgDirectoryList -> IO [FILEPATH]
+getXdgDirectoryListFallback :: XdgDirectoryList -> IO [OsPath]
 getXdgDirectoryListFallback xdgDirs =
   pure $ case xdgDirs of
-    XdgDataDirs   -> [fromString "/usr/local/share/", fromString "/usr/share/"]
-    XdgConfigDirs -> [fromString "/etc/xdg"]
+    XdgDataDirs   -> [encodeFilepathUnsafe "/usr/local/share/", encodeFilepathUnsafe "/usr/share/"]
+    XdgConfigDirs -> [encodeFilepathUnsafe "/etc/xdg"]
 
-getAppUserDataDirectoryInternal :: FILEPATH -> IO FILEPATH
+getAppUserDataDirectoryInternal :: OsPath -> IO OsPath
 getAppUserDataDirectoryInternal appName =
-  (\ home -> home <> (fromString "/" <> fromString "." <> appName)) <$> getHomeDirectoryInternal
+  (\ home -> home <> (encodeFilepathUnsafe "/" <> encodeFilepathUnsafe "." <> appName)) <$> getHomeDirectoryInternal
 
-getUserDocumentsDirectoryInternal :: IO FILEPATH
+getUserDocumentsDirectoryInternal :: IO OsPath
 getUserDocumentsDirectoryInternal = getHomeDirectoryInternal
 
-getTemporaryDirectoryInternal :: IO FILEPATH
-getTemporaryDirectoryInternal = fromMaybe (fromString "/tmp") <$> lookupEnv (fromString "TMPDIR")
+getTemporaryDirectoryInternal :: IO OsPath
+getTemporaryDirectoryInternal = fromMaybe (encodeFilepathUnsafe "/tmp") <$> lookupEnv (encodeFilepathUnsafe "TMPDIR")
 
+lookupEnv :: OsString -> IO (Maybe OsString)
+lookupEnv (OsString name@(PS _)) = fmap OsString <$> PS.getEnv name
+
+getEnv :: OsString -> IO OsString
+getEnv (OsString name@(PS _)) = do
+  env <- PS.getEnv name
+  pn <- decodeFS name
+  case env of
+    Nothing -> throwIO (mkIOError doesNotExistErrorType ("Env var '" <> pn <> "' could not be found!") Nothing Nothing)
+    Just value -> pure (OsString value)
+
+
+canonicalizePathWith :: ((OsPath -> IO OsPath) -> OsPath -> IO OsPath)
+                     -> OsPath
+                     -> IO OsPath
+canonicalizePathWith attemptRealpath path = do
+  let realpath (OsString (PS sb)) = L.useAsCString sb (\cstr -> withRealpath cstr (fmap (OsString . PS) . L.packCString))
+  attemptRealpath realpath path
+#endif

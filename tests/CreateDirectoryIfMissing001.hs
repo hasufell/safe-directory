@@ -1,8 +1,8 @@
 {-# LANGUAGE CPP #-}
 module CreateDirectoryIfMissing001 where
-#include "util.inl"
 import Data.Either (lefts)
-import System.FilePath ((</>), addTrailingPathSeparator)
+import System.OsPath ((</>), addTrailingPathSeparator)
+#include "util.inl"
 
 main :: TestEnv -> IO ()
 main _t = do
@@ -27,13 +27,13 @@ main _t = do
   T(inform) "done."
   cleanup
 
-  writeFile testdir testdir
+  writeFile testdir (toBS testdir)
   T(expectIOErrorType) () isAlreadyExistsError $
     createDirectoryIfMissing False testdir
   removeFile testdir
   cleanup
 
-  writeFile testdir testdir
+  writeFile testdir (toBS testdir)
   T(expectIOErrorType) () isNotADirectoryError $
     createDirectoryIfMissing True testdir_a
   removeFile testdir
@@ -46,8 +46,8 @@ main _t = do
     testdir = testname <> ".d"
     testdir_a = testdir </> "a"
 
-    numRepeats = T.readArg _t testname "num-repeats" 10000
-    numThreads = T.readArg _t testname "num-threads" 4
+    numRepeats = T.readArg _t (decodeFilepathUnsafe testname) "num-repeats" 10000
+    numThreads = T.readArg _t (decodeFilepathUnsafe testname) "num-threads" 4
 
     forkPut mvar action = () <$ forkFinally action (putMVar mvar)
 

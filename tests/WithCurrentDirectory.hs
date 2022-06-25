@@ -1,8 +1,8 @@
 {-# LANGUAGE CPP #-}
 module WithCurrentDirectory where
-#include "util.inl"
-import System.FilePath ((</>))
+import System.OsPath ((</>))
 import qualified Data.List as List
+#include "util.inl"
 
 main :: TestEnv -> IO ()
 main _t = do

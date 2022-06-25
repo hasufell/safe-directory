@@ -5,7 +5,7 @@ module System.File.Windows where
 import Control.Exception (bracketOnError)
 import Data.Bits
 import System.IO (IOMode(..), Handle)
-import System.AbstractFilePath.Windows ( WindowsFilePath )
+import System.OsPath.Windows ( WindowsFilePath )
 
 import qualified System.Win32 as Win32
 import qualified System.Win32.WindowsString.File as WS
@@ -99,7 +99,7 @@ openExistingFile fp iomode = bracketOnError
 
   createMode = case iomode of
     ReadMode      -> Win32.oPEN_EXISTING
-    WriteMode     -> Win32.tRUNCATE_EXISTING
+    WriteMode     -> Win32.oTRUNCATE_EXISTING
     AppendMode    -> Win32.oPEN_EXISTING
     ReadWriteMode -> Win32.oPEN_EXISTING
 

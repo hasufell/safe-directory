@@ -1,7 +1,8 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE OverloadedStrings #-}
 module PathIsSymbolicLink where
-#include "util.inl"
 import TestUtils
+#include "util.inl"
 
 main :: TestEnv -> IO ()
 main _t = do

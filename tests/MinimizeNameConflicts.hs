@@ -1,14 +1,14 @@
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE OverloadedStrings #-}
 module MinimizeNameConflicts
   ( main
-  , module System.Directory
+  , module System.Directory.OsPath
 #if defined(mingw32_HOST_OS)
   , module System.Win32
 #else
   , module System.Posix
 #endif
   ) where
-#include "util.inl"
 #if defined(mingw32_HOST_OS)
 import System.Win32 hiding
   ( copyFile
@@ -25,10 +25,11 @@ import System.Posix hiding
   , removeDirectory
   )
 #endif
+#include "util.inl"
 
 -- This is just a compile-test to check for name conflicts between directory
 -- and other boot libraries. See for example:
 -- https://github.com/haskell/directory/issues/52
 main :: TestEnv -> IO ()
 main _t = do
-  T(expect) "no-op" True
+  T(expect) ("no-op" :: String) True

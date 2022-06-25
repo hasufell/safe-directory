@@ -1,4 +1,5 @@
 {-# LANGUAGE CPP #-}
+{-# OPTIONS_HADDOCK not-home #-}
 -- |
 -- Stability: unstable
 -- Portability: unportable
@@ -10,21 +11,21 @@
 
 #include <HsDirectoryConfig.h>
 
-module System.Directory.Internal.AbstractFilePath
-  ( module System.Directory.Internal.Common.AbstractFilePath
+module System.Directory.Internal.OsPath
+  ( module System.Directory.Internal.Common.OsPath
 
 #if defined(mingw32_HOST_OS)
-  , module System.Directory.Internal.Windows.AbstractFilePath
+  , module System.Directory.Internal.Windows.OsPath
 #else
-  , module System.Directory.Internal.Posix.AbstractFilePath
+  , module System.Directory.Internal.Posix.OsPath
 #endif
 
   ) where
 
-import System.Directory.Internal.Common.AbstractFilePath
+import System.Directory.Internal.Common.OsPath
 
 #if defined(mingw32_HOST_OS)
-import System.Directory.Internal.Windows.AbstractFilePath
+import System.Directory.Internal.Windows.OsPath
 #else
-import System.Directory.Internal.Posix.AbstractFilePath
+import System.Directory.Internal.Posix.OsPath
 #endif
