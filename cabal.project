@@ -3,16 +3,16 @@ packages: .
 source-repository-package
     type: git
     location: https://github.com/hasufell/unix.git
-    tag: f3b8ff89e1166df51ae02ce405fc1b3efe3c590f
+    tag: 2d86597ea8dfa5a7ad968543663008880289ee84
 
 source-repository-package
     type: git
     location: https://github.com/hasufell/Win32.git
-    tag: 766234a476e9f7b88c72fe13b51e0012f95837e9
+    tag: 4fa66128cb1622dafa80eb35c582bc926fbf4453
 
 source-repository-package
     type: git
     location: https://gitlab.haskell.org/haskell/filepath.git
-    tag: 30052a6341bd2e98cc06b591e976aa6cc1a2ad37
+    tag: d7d13206fc641a615680a2b99321ba80b1ebfc57
 
 allow-newer: filepath

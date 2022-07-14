@@ -1,4 +1,4 @@
-AC_INIT([Haskell directory package], [1.0], [libraries@haskell.org], [directory])
+AC_INIT([Haskell safe-directory package], [1.0], [hasufell@posteo.de], [safe-directory])
 
 # Safety check: Ensure that we are in the correct source directory.
 AC_CONFIG_SRCDIR([System/Directory.hs])
