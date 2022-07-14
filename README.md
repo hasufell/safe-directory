@@ -1,4 +1,4 @@
-`directory`
+`safe-directory`
 ===========
 
 [![Hackage][hi]][hl]
@@ -21,10 +21,10 @@ configure`.  This requires [Autoconf][ac] to be installed.
 There is no need to run the `configure` script manually however, as `cabal
 configure` does that automatically.
 
-[hi]: https://img.shields.io/hackage/v/directory.svg
-[hl]: https://hackage.haskell.org/package/directory
-[bi]: https://github.com/haskell/directory/actions/workflows/build.yml/badge.svg
-[bl]: https://github.com/haskell/directory/actions
-[di]: https://img.shields.io/hackage-deps/v/directory.svg
-[dl]: http://packdeps.haskellers.com/feed?needle=exact:directory
+[hi]: https://img.shields.io/hackage/v/safe-directory.svg
+[hl]: https://hackage.haskell.org/package/safe-directory
+[bi]: https://github.com/hasufell/safe-directory/actions/workflows/build.yml/badge.svg
+[bl]: https://github.com/hasufell/safe-directory/actions
+[di]: https://img.shields.io/hackage-deps/v/safe-directory.svg
+[dl]: http://packdeps.haskellers.com/feed?needle=exact:safe-directory
 [ac]: https://gnu.org/software/autoconf
