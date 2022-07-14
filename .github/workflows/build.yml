@@ -35,8 +35,8 @@ jobs:
         autoreconf --version
         autoreconf -i
         cabal sdist -z -o .
-        cabal get unix-*.tar.gz
-        cd unix-*/
+        cabal get safe-directory-*.tar.gz
+        cd safe-directory-*/
         cabal test all --test-show-details=direct
     - name: Haddock
       run: cabal haddock
