@@ -1,6 +1,11 @@
 Changelog for the [`directory`][1] package
 ==========================================
 
+## 1.3.8.0 (July 2022)
+
+  * fork `directory`
+  * add abstract filepath support
+
 ## 1.3.7.1 (May 2021)
 
   * Relax `time` version bounds to support 1.12.
